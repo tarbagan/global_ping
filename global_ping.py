@@ -1,90 +1,64 @@
-from selenium import webdriver
-import time
-from bs4 import BeautifulSoup as bs
-import requests
+# -*- coding: utf-8 -*-
+import speedtest
+import subprocess
+import platform
+from multiprocessing.dummy import Pool as ThreadPool
+import csv
 
-URL = 'https://www.instagram.com/irgit_valery/'
-LOGIN = '***'
-PASSWORD = '***'
-FILE = 'out_data.txt' #json
+def server():
+    '''Get the speedtest.net servers (7k servers)'''
+    ser_all = []
+    s = speedtest.Speedtest()
+    for i in s.get_servers().values():
+        for srv in i:
+            srv['host'] = srv['host'][:-5]
+            ser_all.append(srv)
+    return ser_all
 
-#Подключаем драйвер Selenium
-driver = webdriver.Firefox(executable_path=r"e:\PythonProgect\insta\geckodriver.exe" )
-url_autch = f'https://www.instagram.com/accounts/login/?source=auth_switcher'
-driver.get(url_autch)
-time.sleep(5)
+def ping(host):
+    '''The ping function for windows os ping'''
+    try:
+        ping_str = "-n 1" if platform.system().lower() == "windows" else "-c 1"
+        args = "ping " + " " + ping_str + " " + host
+        con_out = subprocess.check_output(args, shell=True).decode('cp866')
+        con_out = (con_out.split( '=' )[2])[:-6]
+    except:
+        con_out = 0
+    return con_out
 
-#Аутификация
-log = driver.find_element_by_name( "username" )
-psw = driver.find_element_by_name( "password" )
-btn = driver.find_element_by_css_selector("[type='submit']")
-log.send_keys( LOGIN )
-psw.send_keys( PASSWORD )
-btn.click()
-time.sleep(5)
+def split(arr, count):
+    '''We break lists -server()- by an amount of flows of Pool'''
+    return [arr[i::count] for i in range(count)]
 
-#Процесс
-driver.get(URL)
-time.sleep(5)
+pool = ThreadPool(5)
 
-def get_count(driver):
-    # получаем количество постов COUNT
-    podtemp = driver.find_element_by_tag_name("html").text
-    soup = bs(podtemp, 'lxml')
-    pod = (str(soup).split('\n'))
-    pod = [x for x in pod if "публикаций" in x]
-    pod = [x for x in str(pod) if x.isdigit()]
-    pod = int(''.join(pod))
-    return pod
+for part in (split(server(), 1700)):
+    try:
+        hosts_part = [i['host'] for i in part]
+        ttl_all = pool.map(ping, hosts_part)
+        cnt = len(ttl_all)
+    except:
+        z=0
 
-def dublicat(dic):
-    return list(set(dic))
+    '''save result to csv file'''
+    with open( 'ping.csv', 'a') as f:
+        for num, i in enumerate(part):
+            i['ttl'] = ttl_all[num]
 
-def get_json(url):
-    r = requests.get(url)
-    return r.json()
+            lat=str(i['lat'])
+            lon=str(i['lon'])
+            name=str(i['name'])
+            country=str(i['country'])
+            id=str(i['id'])
+            hostst=str(i['host'])
+            ttlst=str(i['ttl'])
+            d=str(i['d'])
+            stroka = id + ';' + name + ';' + country + ';' + lat + ';' + lon + ';' + hostst + ';' + d + ';' + ttlst
+            print (stroka)
 
-COUNT = get_count(driver)
-if COUNT > 0:
-    print (f'Начинаем парсинг {COUNT} публикаций аккаунта Инстаграмм')
-    print ('*'*40)
-    POST = []
-
-    while driver.find_element_by_tag_name('html'):
-        soup = bs(driver.page_source, 'lxml')
-
-        for i in soup.findAll('a'):
-            url_temp = i.get('href')
-            if str(url_temp)[0:3] == '/p/':
-                id_post = url_temp.split('/')[2]
-                POST.append(id_post)
-
-        time.sleep(3)
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
-        print (f'Parsing: {len(POST)} / Total: {len(dublicat(POST))} | {id_post}')
-        if len(dublicat(POST)) == COUNT:
-            break
-    print('*' * 40)
-    print (f'Идентификаторы {len(dublicat(POST))} публикаций получены. \nНачинаем парсинг публикаций...')
-    driver.quit()
-
-    IDENT = dublicat(POST)
-    URL_ALL = [f'https://www.instagram.com/p/{x}/?__a=1' for x in IDENT]
-    with open(FILE, 'a', encoding='utf8') as file:
-        count_temp = []
-        try:
-            for num, url in enumerate(URL_ALL):
-                data = get_json(url)
-                count_temp.append(1)
-                print (f'№{num} | Пост {len(count_temp)} /Всего{len(URL_ALL)} - записан')
-                file.write(str(data) + '\n')
-        except Exception as e:
-            print (e)
-
-        print('*' * 40)
-        print (f'Запись в файл успешна завершена \nВсего постов {len(count_temp)}')
-        
-else:
-    driver.quit()
-    print ('У пользователя нет публикаций!')
+            try:
+                f.write(str(stroka) +'\n')
+            except:
+                z=0
+        f.close()
+print ('ok')
